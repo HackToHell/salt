@@ -1987,6 +1987,51 @@ class Minion(MinionBase):
         elif tag.startswith('fire_master'):
             log.debug('Forwarding master event tag={tag}'.format(tag=data['tag']))
             self._fire_master(data['data'], data['tag'], data['events'], data['pretag'])
+        elif tag.startswith('connection/pub/failed'):
+            if self.connected:
+                # we are not connected anymore
+                self.connected = False
+                log.info('Connection to master {0} lost'.format(self.opts['master']))
+                # delete the scheduled job to don't interfere with the failover process
+                if self.opts['transport'] != 'tcp':
+                    self.schedule.delete_job(name=master_event(type='alive'))
+
+                if hasattr(self, 'pub_channel'):
+                    self.pub_channel.on_recv(None)
+                    if hasattr(self.pub_channel, 'auth'):
+                        self.pub_channel.auth.invalidate()
+                    if hasattr(self.pub_channel, 'close'):
+                        self.pub_channel.close()
+                    del self.pub_channel
+
+                # if eval_master finds a new master for us, self.connected
+                # will be True again on successful master authentication
+                try:
+                    master, self.pub_channel = yield self.eval_master(
+                        opts=self.opts,
+                        failed=True,
+                        failback=False)
+                except SaltClientError:
+                    pass
+
+                if self.connected:
+                    self.opts['master'] = master
+
+                    # re-init the subsystems to work with the new master
+                    log.info('Re-initialising subsystems for new '
+                             'master {0}'.format(self.opts['master']))
+                    # put the current schedule into the new loaders
+                    self.opts['schedule'] = self.schedule.option('schedule')
+                    self.functions, self.returners, self.function_errors, self.executors = self._load_modules()
+                    # make the schedule to use the new 'functions' loader
+                    self.schedule.functions = self.functions
+                    self.pub_channel.on_recv(self._handle_payload)
+                    self._fire_master_minion_start()
+                    log.info('Minion is ready to receive requests!')
+                else:
+                    self.restart = True
+                    self.io_loop.stop()
+
         elif tag.startswith(master_event(type='disconnected')) or tag.startswith(master_event(type='failback')):
             # if the master disconnect event is for a different master, raise an exception
             if tag.startswith(master_event(type='disconnected')) and data['master'] != self.opts['master']:
