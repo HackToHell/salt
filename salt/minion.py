@@ -2003,6 +2003,10 @@ class Minion(MinionBase):
                     if hasattr(self.pub_channel, 'close'):
                         self.pub_channel.close()
                     del self.pub_channel
+                time.sleep(60)
+                if hasattr(self, 'periodic_callbacks'):
+                    for cb in six.itervalues(self.periodic_callbacks):
+                        cb.stop()
 
                 # if eval_master finds a new master for us, self.connected
                 # will be True again on successful master authentication
@@ -2025,9 +2029,7 @@ class Minion(MinionBase):
                     self.functions, self.returners, self.function_errors, self.executors = self._load_modules()
                     # make the schedule to use the new 'functions' loader
                     self.schedule.functions = self.functions
-                    self.pub_channel.on_recv(self._handle_payload)
-                    self._fire_master_minion_start()
-                    log.info('Minion is ready to receive requests!')
+                    self.tune_in(start=False)
                 else:
                     self.restart = True
                     self.io_loop.stop()
