@@ -2005,8 +2005,8 @@ class Minion(MinionBase):
                     del self.pub_channel
                 time.sleep(60)
                 if hasattr(self, 'periodic_callbacks'):
-                    for cb in six.itervalues(self.periodic_callbacks):
-                        cb.stop()
+                    if self.periodic_callbacks.get('ping'):
+                        self.periodic_callbacks['ping'].stop()
 
                 # if eval_master finds a new master for us, self.connected
                 # will be True again on successful master authentication
